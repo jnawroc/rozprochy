@@ -6,12 +6,13 @@
 #include "comm_const.h"
 
 
-int send_head(int des,int type,unsigned char is_msg){
+int send_head(int des,int type,unsigned char data){
 	msg_header msg;
 	msg.type=htonl(type);
-	msg.is_msg=(is_msg);
+	msg.data=(data);
 	return send(des,&msg,sizeof(msg_header),0);
 }
+
 
 int send_msg(int des,char* name){
 	int ret;
@@ -20,4 +21,14 @@ int send_msg(int des,char* name){
 	ret = send(des,buf,MSG_LEN,0);
 	return ret;
 }
+
+int send_msg_vl(int des,char* name,int length){
+	int ret;
+	char buf[length];
+	memcpy(buf,name,length);
+	ret = send(des,buf,length,0);
+	return ret;
+}
+
+
 

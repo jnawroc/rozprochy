@@ -28,6 +28,7 @@
 #include <pthread.h>
 #include <stdarg.h>
 #include "pid_set.h"
+#include "funct.h"
 #include "comm_const.h"
 #include <dirent.h>
 #include <sys/stat.h>
@@ -60,7 +61,7 @@ int mprint(const char *path,const char *format,...) {
 }
 
 
-
+#define MAX_STATS 16
 
 pthread_mutex_t pid_set_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t send_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -84,6 +85,7 @@ int file_count;
 char** file_paths;
 struct stat** file_stats;
 int screen_width;
+void* (*functions)();
 
 
 void hand_bool(int sig){
@@ -135,17 +137,6 @@ void* wait_for_children(void* nth){
 	}
 }
 
-int file_changed(struct stat* st,int i){
-	if (st->st_ctime!=file_stats[i]->st_ctime) return 1;
-
-	if (st->st_atime!=file_stats[i]->st_atime) return 1;
-
-	if (st->st_mtime!=file_stats[i]->st_mtime) return 1;
-
-	if (st->st_size!=file_stats[i]->st_size) return 1;
-
-	return 0;
-}
 
 void send_stat(int i){
 	char timebuf[100];
@@ -174,6 +165,8 @@ void send_stat(int i){
 }
 
 
+void send_load_stat(void){
+	}
 
 void send_memory_stat(void){
 	char buf[MSG_LEN];
@@ -364,146 +357,71 @@ void send_uptime_stat(){
 
 }
 
+unsigned short UDP_port;
+unsigned long UDP_IP;
 
-void send_load_stat(){
-	FILE* load=fopen("/proc/loadavg","r");
-	if (!load) {
-		pthread_mutex_lock(&send_mutex);
-		send_msg(client_des,"Blad - nie da sie pobrac obciazenia systemu\n\n");
-		pthread_mutex_unlock(&send_mutex);
-		return;
-	}
-
-	double load1;
-	double load5;
-	double load15;
-	char buf[MSG_LEN];
-	char timebuf[100];
-	time_t t=time(NULL);
-	strftime(timebuf,100,"%y-%m-%d %H:%M:%S",localtime(&t));
-
-
-	fscanf(load,"%lf",&load1);
-	fscanf(load,"%lf",&load5);	
-	fscanf(load,"%lf",&load15);	
-
-
-
-
-	sprintf(buf,"%s: obciazenie systemu przez\n    ostatnia minute: %2.2lf,\n    5 minut: %2.2lf,\n    15 minut:%2.2lf\n\n",timebuf,load1,load5,load15);
-
-	pthread_mutex_lock(&send_mutex);
-	send_msg(client_des,buf);
-	pthread_mutex_unlock(&send_mutex);
-
-
-	pclose(load);
-
-}
-
-
-void* file_monitor(void* nth){
-	int i;
-	int f[1024];
-	struct stat st;
-	while(1){
-		sleep(1);
-		pthread_mutex_lock(&file_mutex);
-		for (i=0;i<file_count;i++){
-			if (stat(file_paths[i],&st)>=0){
-				f[i]=file_changed(&st,i);
-			}else f[i]=0;
-		}
-		pthread_mutex_unlock(&file_mutex);
-		for (i=0;i<file_count;i++)
-			if (f[i]){
-				struct stat* sold;
-				struct stat* snew=malloc(sizeof(struct stat));
-				sold=file_stats[i];
-				stat(file_paths[i],snew);
-				file_stats[i]=snew;
-				free(sold);
-				send_stat(i);
-			}
-	}
+void recv_est(int des){
+	char buf[sizeof(uint16_t)+sizeof(uint32_t)];
+	recv(des,buf,sizeof(uint16_t)+sizeof(uint32_t),0);
+	UDP_port = ntohs(*((uint16_t*)buf));
+	UDP_IP = ntohl(*((uint16_t*)buf + sizeof(uint32_t)));
 }
 
 void daemon_run(){
-	char buf[MSG_LEN];
-	char buf2[MSG_LEN];
 	msg_header msg_r;
-	struct stat st;
-	pthread_t thread1;
-	pthread_create(&thread1,NULL,&file_monitor,NULL);
-
-
-
-	file_count=0;
-	file_paths=malloc(sizeof(char*)*1024);
-	file_stats=malloc(sizeof(void*)*1024);
 
 	int recived;
 	kill(getppid(),SIGUSR1);
-
+	fun_init();
+	
 	while(!boolean);
+	recv_est(client_des);
 	dir_path=getenv("PWD");
 	mprint(logfile,"<M>: Rozpoczeta obsługa połączenia z IP: %s PID procesu obsługującego: %d\n",IP,getpid());
-
-	while ((  recived=recv( client_des,&msg_r,sizeof(msg_header) ,0))){
+	recv( client_des,&msg_r,sizeof(msg_header) ,0);
+	int b=1;
+	while (b && (  recived=recv( client_des,&msg_r,sizeof(msg_header) ,0))){
+		unsigned char timestamp = msg_r.data;
 		switch ntohl(msg_r.type){
-			case MONIT:
-				if (recv(client_des,buf,MSG_LEN,0)>0){
-					if ((file_count<1024)&&(stat(buf,&st)>=0)){
-						file_stats[file_count]=malloc(sizeof(struct stat));
-						(*file_stats[file_count])=st;
-						pthread_mutex_lock(&file_mutex);
-						file_paths[file_count]=strdup(buf);
-						pthread_mutex_unlock(&file_mutex);
-						
-						send_stat(file_count++);
-						
-						
-						
-					}else{
-						int er=errno;
-						send_msg(client_des,buf);
-						pthread_mutex_lock(&send_mutex);
-						if (file_count>=1024) send_msg(client_des,":\nNie bede monitorowal pliku , poniewaz monitoruje juz zbyt wiele\n");
-						else{
-							sprintf(buf2,":\nNie udalo sie uzyskac statystyk pliku: %s\n",strerror(er));
-							send_msg(client_des,buf2);
-						}
-						pthread_mutex_unlock(&send_mutex);
-						
-					}
-				}
-				break;
 			case USERS:
-				send_users_stat();
+				fun_add(&send_users_stat,timestamp);
 				break;
 
 			case MEMORY:
-				send_memory_stat();					
+				fun_add(&send_memory_stat,timestamp);
 				break;
 
 			case PROC:
-				send_proc_stat();
+				fun_add(&send_proc_stat,timestamp);
 				break;
 
 			case UPTIME:
-				send_uptime_stat();
+				fun_add(&send_uptime_stat,timestamp);
 				break;
 
 			case LOAD:
-				send_load_stat();
+				fun_add(&send_load_stat,timestamp);
 				break;
-
-			case SET_WIDTH:
-				screen_width=msg_r.is_msg;
+		
+			case CONFIGURATION_END:
+				b=0;
 				break;
+				
 		}
 	}
 
+	int live=1;
+	while (live){
+		int recived;
+		sleep(interval_gcd);
+		fun_execute();
+		recived = recv( client_des,&msg_r,sizeof(msg_header) ,MSG_DONTWAIT);
+		if (recived!=EAGAIN){
+			if (msg_r.type==CONNECTION_END){
+				live=0;
+			}
+		}
+	}
 
 	mprint(logfile,"<M>: Zakończona obsługa połączenia z IP: %s PID procesu obsługującego: %d\n",IP,getpid());
 
