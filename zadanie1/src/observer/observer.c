@@ -1,30 +1,12 @@
-/*
- * 3. Obserwator - to program pozwalający zaprezentować stan jednego lub więcej 
- * węzłów Emitera lub Filtra użytkownikowi. Program obserwator podobnie jak 
- * Filtr powinien przyjmować 1 lub więcej adresów transportowych węzłów Emitera 
- * lub Filtra i podobnie jak program Filtr powinien nasłuchiwać w trybie unicast 
- * lub multicast. Przykładowa linia poleceń może wyglądać następująco:
- *     obserwator -m 239.2.3.4/50000 2.3.4.5/2355
- *     co powinno spowodować, że Obserwator zgłosi się do programu 
- *     (Emitera lub Filtra) i zażąda emisji w trybie multicast wyświetlając 
- *     otrzymywane informacje na ekranie. Informacja dla użytkownika powinna być 
- *     czytelna, przykładowo Obserwator może wyświetlić następujące dane:
- *         * 12:53:04 1.2.3.4 - liczba procesów: 17
- *         * 12:53:07 2.3.4.5 - liczba procesorów: 2
- *         * 12:53:12 2.2.2.2 - maksymalna ilość wolnej pamięci: 627 MB - host 1.2.3.4
- * */
-
-
-
 
 #include <stddef.h>
 #include <string.h>
 #include <stdio.h>
 #include <errno.h>
 #include <stdlib.h>
+#include <signal.h>
 #include <sys/socket.h>
 #include <sys/un.h>
-#include <curses.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <netdb.h>
@@ -32,24 +14,309 @@
 #include <unistd.h>
 #include <strings.h>
 #include <stdarg.h>
-#include <pthread.h> 
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #include "comm_const.h"
+#include <argp.h>
+#include "stats_functs.h"
 
-int sned_est(int des){
-	struct sockaddr_in adr;
-	unsigned size = sizeof(struct sockaddr_in) ;
-	getsockname(des,(struct sockaddr*)&adr,&size);
-	char buf[sizeof(uint16_t)+sizeof(uint32_t)];
-	*((uint16_t*)buf) = htons(adr.sin_port);
-	*((uint16_t*)buf + sizeof(uint32_t)) = htons(adr.sin_addr.s_addr);
-	send_msg_vl(des,buf,sizeof(uint16_t)+sizeof(uint32_t));
-	return 1;
-}
+const char *argp_program_version = "observer 1.0";
+const char *argp_program_bug_address = "<none>";
+struct sockaddr_in emiters_addr[MAX_EMITERS];
+struct sockaddr_in emiters_UDP_addr[MAX_EMITERS];
+int emiters_des[MAX_EMITERS];
+int UDP_des;
 
+int (*debug)(const char *format,...);
+int (*verbouse)(const char *format,...);
 
-
-int main(int argc,char* argv[]){
-	
+int none(const char *format,...){
 	return 0;
 }
 
+struct arguments {
+	uint32_t IPs[MAX_EMITERS];
+	int ports[MAX_EMITERS];
+	int IPcount;
+	uint32_t multicast_IP;
+	int multicast_port;
+	unsigned char timestamps[4];
+};
+
+struct arguments *args;
+struct sockaddr_in my_UDP_addr;
+void sighand (int sig)
+{
+	int i;
+
+	for (i = 0; i < (args->IPcount); i++) {
+		debug("%s do %s\n",head_names[CONNECTION_END],inet_ntoa( (emiters_addr[i]).sin_addr));
+		send_head (emiters_des[i], CONNECTION_END, 0);
+	}
+
+	exit (0);
+}
+
+	 /*
+	  * Program documentation. 
+	  */
+static char doc[] =
+	"Observer - program obserwujący emiterow, bądź filtry\n\
+  adres_IP - IP emiterow/filtrow, nalezy podać conajmniej jeden.";
+
+	 /*
+	  * A description of the arguments we accept. 
+	  */
+static char args_doc[] =
+	"[adres_IP...]";
+
+	 /*
+	  * The options we understand. 
+	  */
+static struct argp_option options[] = {
+	{"multicast", 'm', "MulticastIP", 0,
+		"Ustawia adres na multicast"},
+	{"proc", 'p', "timestamp", 0, "liczba procesow"},
+	{"memory", 'M', "timestamp", 0, "statystyki pamieci"},
+	{"cpu", 'c', "timestamp", 0, "nazwa procesorow"},
+	{"load", 'l', "timestamp", 0, "obciązenie systemu"},
+	{"all", 'a', "timestamp", 0, "wszystkie stat"},
+	{"verbouse",'v',0,0,"bądź rozmowny"},
+	{"debug",'d',0,0,"włącza komunikaty debbugowania"},
+	{0}
+};
+
+
+	 /*
+	  * Used by main to communicate with parse_opt. 
+	  */
+
+
+	 /*
+	  * Parse a single option. 
+	  */
+static error_t parse_opt (int key, char *arg, struct argp_state *state)
+{
+	/*
+	 * Get the input argument from argp_parse, which we know is a pointer
+	 * to our arguments structure. 
+	 */
+	struct arguments *arguments = state->input;
+	struct hostent *h;
+
+	char *p;
+
+	switch (key) {
+		case 'm':
+			p = strstr (arg, "/");
+			*p = 0;
+			p++;
+			h = gethostbyname (arg);
+
+			arguments->multicast_IP =*((uint32_t*)h->h_addr_list[0]);
+				//ntohl (*((unsigned long int *) (h->h_addr_list[0])));
+			arguments->multicast_port = atoi (p);
+			break;
+		case 'p':
+			arguments->timestamps[PROC] = (unsigned char) atoi (arg);
+			break;
+		case 'a':
+			memset (arguments->timestamps, (unsigned char) atoi (arg), 4);
+			break;
+		case 'M':
+			arguments->timestamps[MEMORY] = (unsigned char) atoi (arg);
+			break;
+			break;
+		case 'c':
+			arguments->timestamps[CPU_NAME] = (unsigned char) atoi (arg);
+			break;
+		case 'l':
+			arguments->timestamps[LOAD] = (unsigned char) atoi (arg);
+			break;
+		case 'v':
+			verbouse=&printf;
+			break;
+		case 'd':
+			verbouse=&printf;
+			debug=&printf;
+			break;
+
+		case ARGP_KEY_ARG:
+			if (state->arg_num >= MAX_EMITERS)
+				/*
+				 * Too many arguments. 
+				 */
+				argp_usage (state);
+			p = strstr (arg, "/");
+			*p = 0;
+			p++;
+			
+			h = gethostbyname (arg);
+
+			arguments->IPs[state->arg_num] = *((uint32_t*)h->h_addr_list[0]);
+		
+			arguments->ports[state->arg_num] = atoi (p);
+
+			arguments->IPcount = state->arg_num + 1;
+
+			break;
+
+		case ARGP_KEY_END:
+			if (!state->arg_num)
+				argp_usage (state);
+			break;
+
+		default:
+			return ARGP_ERR_UNKNOWN;
+	}
+	return 0;
+}
+
+
+	 /*
+	  * Our argp parser. 
+	  */
+static struct argp argp = { options, parse_opt, args_doc, doc };
+
+
+int send_est (int des, uint32_t mip, uint16_t mipp)
+{
+	struct sockaddr_in *adr = &my_UDP_addr;
+	struct sockaddr_in addr;
+	socklen_t size = sizeof (struct sockaddr_in);
+	if (getsockname (des, (struct sockaddr *) &addr, &size)){
+		perror("getsockname");
+	}
+	(*adr)=addr;
+
+	adr->sin_family = AF_INET;
+	adr->sin_port = htons(8888);
+	if (mip) {
+		(*debug)("\t\tjest multicast\n");
+		adr->sin_port = htons (mipp);
+		adr->sin_addr.s_addr = htonl (mip);
+	}
+	struct uint32_16 uu;
+	uu.u16 = (uint16_t) (mip ? mipp : adr->sin_port);
+	uu.u32 = (uint32_t) (mip ? mip  : adr->sin_addr.s_addr);
+
+	//((uint16_t *) buf)[0] =  (mip ? mipp : (uint16_t)adr->sin_port);
+	//((uint32_t *) (buf + sizeof (uint16_t)))[0] =(uint32_t)
+	//	 (mip ? mip : adr->sin_addr.s_addr);
+	debug("\t\tmy_UDP_addr %s\n",inet_ntoa( my_UDP_addr.sin_addr));
+	return send(des, (const void*) &uu, sizeof (struct uint32_16),0);
+}
+
+
+void take_stats ()
+{
+	debug("zaczyna zbierać\n");
+	UDP_des = socket (PF_INET, SOCK_DGRAM, 0);
+	if (bind (UDP_des, (struct sockaddr *) &my_UDP_addr,
+		sizeof (struct sockaddr_in))){
+		perror("bindowanie UDP");
+		exit(1);
+	}
+
+	UDP_msg msg;
+	volatile int i;
+
+	while (1) {
+		debug("żyję\n");
+				
+		for (i = 0; i < args->IPcount; i++) {
+		
+			socklen_t len = sizeof (struct sockaddr_in);
+			debug("próba odczytu\n");
+			int res = recvfrom (UDP_des, &msg, sizeof (struct _UDP_msg),
+					MSG_DONTWAIT, (struct sockaddr *) &emiters_UDP_addr[i],
+					&len);
+
+			if ( res>0) {
+
+				char* ip=strdup(inet_ntoa(emiters_UDP_addr[i].sin_addr));
+				debug("zakonczona pomyslnie\n");
+				if (msg.type & 1024) {
+					(*combined_func[msg.type ^ 1024]) (ip,msg.data);
+				} else {
+					(*stat_func[msg.type]) (ip,msg.data);
+				}
+			}
+			sleep(1);
+		}
+	}
+}
+
+int main (int argc, char **argv)
+{
+	verbouse=&none;
+	debug=&none;
+	struct arguments arguments;
+	signal(SIGTERM,&sighand);
+
+	signal(SIGINT,&sighand);
+	
+
+	/*
+	 * Default values. 
+	 */
+	memset (arguments.IPs, 0, sizeof (uint32_t) * MAX_EMITERS);
+	arguments.multicast_IP = 0;
+	memset (arguments.timestamps, 0, 4);
+	arguments.IPcount = 0;
+
+	/*
+	 * Parse our arguments; every option seen by parse_opt will be
+	 * reflected in arguments. 
+	 */
+
+	argp_parse (&argp, argc, argv, 0, 0, &arguments);
+
+	args = &arguments;
+	(*debug)("inicjacja funkcji do zbierania statystyk\n");
+	init_stats_functs();
+	volatile int i;
+	
+	for (i = 0; i < args->IPcount; i++) {
+
+		(emiters_addr[i]).sin_family = AF_INET;
+		(emiters_addr[i]).sin_port = htons (args->ports[i]);
+		(emiters_addr[i]).sin_addr.s_addr =  (args->IPs[i]);
+		(*verbouse)("łączenie z klientem o IP: %s na porcie %d\n",
+					inet_ntoa((emiters_addr[i]).sin_addr),args->ports[i]);
+		(*verbouse)("\ttworzenie socketu\n");
+
+		emiters_des[i] = socket (PF_INET, SOCK_STREAM, 0);
+		int t = 1;
+		
+		setsockopt (emiters_des[i], SOL_SOCKET, SO_REUSEADDR, &t, sizeof (int));
+		(*verbouse)("\tłączenie\n");
+		if (connect (emiters_des[i],
+				(struct sockaddr *) (emiters_addr + i),
+				sizeof (struct sockaddr_in)) != 0) {
+			perror ("connect");
+			return 0;
+		}
+		(*verbouse)("\twysylanie kanalem zarzadzania opcje połączenia\n");
+		
+		send_est (emiters_des[i], args->multicast_IP, args->multicast_port);
+		int k=0;
+		for(k=0;k<4;k++){
+			(*debug)("k=%d\n",k);
+			if (args->timestamps[k]) {
+				(*debug)("\twysylanie %s z timestampem: %d\n",head_names[k],
+					  args->timestamps[k]);
+				send_head (emiters_des[i], k, args->timestamps[k]);
+
+			}
+		}
+		send_head (emiters_des[i], CONFIGURATION_END, 0);
+		debug("wyslane %s\n",head_names[CONFIGURATION_END]);
+
+	}
+
+	take_stats();
+
+	return 0;
+}

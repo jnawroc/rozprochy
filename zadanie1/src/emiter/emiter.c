@@ -64,8 +64,6 @@ int mprint(const char *path,const char *format,...) {
 #define MAX_STATS 16
 
 pthread_mutex_t pid_set_mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t send_mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t file_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 //int clients_des[MAX_CLIENTS];
 int sigusr;
@@ -80,12 +78,11 @@ char* IP;
 char* dir_path;
 DIR* dir;
 static char* logfile="demonlog.txt";
-
-int file_count;
-char** file_paths;
-struct stat** file_stats;
-int screen_width;
-void* (*functions)();
+uint16_t UDP_port;
+uint32_t UDP_IP;
+int UDP_sock;
+int UDP_des;
+struct sockaddr_in UDP_addr;
 
 
 void hand_bool(int sig){
@@ -138,233 +135,134 @@ void* wait_for_children(void* nth){
 }
 
 
-void send_stat(int i){
-	char timebuf[100];
-	char buf[MSG_LEN];
+void send_load_stat(void){
+	mprint(logfile,"<M>: Wysylam load_stat\n");
+	FILE* load=fopen("/proc/loadavg","r");
+	if (!load) {
+		return;
+	}
+	UDP_msg msg;
+	char* buf = msg.data;
+	fread(buf,1,128,load);
+	char* p1=buf;
+	char* p2;
+	for (p2=buf;*p2!=' ';p2++);
+	*p2 = 0;
+	float min1_load = strtod(p1,NULL);
+	for (p1=p2+1;*p1==' ';p1++);
+	for (p2=p1;*p2!=' ';p2++);
+	*p2 = 0;
+	float min5_load = strtod(p1,NULL);
+	for (p1=p2+1;*p1==' ';p1++);
+	for (p2=p1;*p2!=' ';p2++);
+	*p2 = 0;
+	float min15_load = strtod(p1,NULL);
 
-	struct stat *st=file_stats[i];
+	
+	msg.type=LOAD;
+	float *ptr;
+	ptr = &min1_load;
+	*((uint32_t*)buf)=htonl(*((int*)ptr));
+	ptr = &min5_load;
+	*((uint32_t*)(buf+sizeof(float)))=htonl(*((int*)ptr));
+	ptr = &min15_load;
+	*((uint32_t*)buf+sizeof(float))=htonl(*((int*)ptr));
+	sendto(UDP_sock,&msg,sizeof(struct _UDP_msg),0,
+		   (struct sockaddr*)&UDP_addr,sizeof(struct sockaddr));
+	fclose(load);
+}
 
+void send_cpu_stat(void){
+		mprint(logfile,"<M>: Wysylam cpu_stat\n");
+	FILE* cpuinfo=fopen("/proc/cpuinfo ","r");
+	if (!cpuinfo) {
+		return;
+	}
+	char buf [UDP_MSG_LEN-1];
+	UDP_msg msg;
+	msg.type=CPU_NAME;
+	while (fgets(buf,UDP_MSG_LEN-1,cpuinfo)){
+		char *p=strstr(buf,"\n");
+		if (*p) *p=0;
+		if (strstr(buf,"processor")){
+			char *p1 = strstr(buf,": ")+2;
+			msg.data[0]=(unsigned char) (atoi(p1));
+		}
+		if (strstr(buf,"model_name")){
+			char *p1 = strstr(buf,": ")+2;
+			strcpy((msg.data+1),p1);
+			sendto(UDP_sock,&msg,sizeof(struct _UDP_msg),0,
+				   (struct sockaddr*)&UDP_addr,sizeof(struct sockaddr));
+		}
 
-	pthread_mutex_lock(&send_mutex);
-	send_msg(client_des,file_paths[i]);	
-	pthread_mutex_unlock(&send_mutex);
-
-	sprintf(buf," aktualne dane:\nrozmiar: %llu\nczas dostepu: ",(long long unsigned)st->st_size);
-	strftime(timebuf,100,"%y-%m-%d %H:%M:%S",localtime(&st->st_atime));
-	strcat(buf,timebuf);
-	strcat(buf,"\nczas modyfikacji: ");
-	strftime(timebuf,100,"%y-%m-%d %H:%M:%S",localtime(&st->st_mtime));
-	strcat(buf,timebuf);
-	strcat(buf,"\nczas zmiany wlasciwosci:");
-	strftime(timebuf,100,"%y-%m-%d %H:%M:%S\n\n",localtime(&st->st_ctime));
-	strcat(buf,timebuf);
-
-	pthread_mutex_lock(&send_mutex);
-	send_msg(client_des,buf);
-	pthread_mutex_unlock(&send_mutex);
+	}
+	fclose(cpuinfo);
 }
 
 
-void send_load_stat(void){
+void send_proc_stat(void){
+		mprint(logfile,"<M>: Wysylam lproc_stat\n");
+	FILE *pipe=popen("ps -eo user,pid,size,cmd | wc -l","r");
+	if (!pipe) {
+		return;
 	}
+	int pr;
+	fscanf(pipe,"%d",&pr);
+	UDP_msg msg;
+	msg.type = PROC;
+	*(uint32_t*)msg.data = htonl(pr);
+	pclose(pipe);
+
+	if (sendto(UDP_sock,&msg,sizeof(struct _UDP_msg),0,
+			   (struct sockaddr*)&UDP_addr,sizeof(struct sockaddr_in))<=0){
+		perror("wysyłanie");
+	};
+}
 
 void send_memory_stat(void){
-	char buf[MSG_LEN];
+			mprint(logfile,"<M>: Wysylam memory_stat\n");
 	FILE *pipe=popen("free -o","r");
 	int total,used,free;
 	char rbuf[200];
-	char timebuf[100];
-	char stotal[18],sused[18],sfree[18];
 	if (!pipe) {
-		pthread_mutex_lock(&send_mutex);
-		send_msg(client_des,"Blad - nie da sie pobrac statystyk pamieci\n\n");
-		pthread_mutex_unlock(&send_mutex);
 		return;
 	}
-	time_t t=time(NULL);
-	strftime(timebuf,100,"%y-%m-%d %H:%M:%S",localtime(&t));
-
-	sprintf(buf,"Statystyki pamieci z %s:\n%37s%17s%17s\n",timebuf,"calkowita","zajeta","wolna");
-
+	
+	UDP_msg msg;
+	msg.type = MEMORY;
+		
 	while(!strstr(rbuf,"Mem:")) fscanf(pipe,"%s",rbuf);
 	fscanf(pipe,"%d",&total);
 	fscanf(pipe,"%d",&used);
 	fscanf(pipe,"%d",&free);
-
-	sprintf(stotal,"%.0d%s%.0d%s%d%s",total>>20,(total>>20)?"G ":"",((total>>10)%1024),(total>>10)?"M ":"",total%1024,"K");
-	sprintf(sused,"%.0d%s%.0d%s%d%s",used>>20,(used>>20)?"G ":"",((used>>10)%1024),(used>>10)?"M ":"",used%1024,"K");
-	sprintf(sfree,"%.0d%s%.0d%s%d%s",free>>20,(free>>20)?"G ":"",((free>>10)%1024),(free>>10)?"M ":"",free%1024,"K");
-
-	sprintf(buf+strlen(buf),"%20s%17s%17s%17s\n","Pamiec uzytkownika:",stotal,sused,sfree);
-
+	uint32_t* upi;
+	upi = (uint32_t*) msg.data;
+	*(upi++) = htonl(total);
+	*(upi++) = htonl(used);
+	*(upi++) = htonl(free);
+		
 	while(!strstr(rbuf,"Swap:")) fscanf(pipe,"%s",rbuf);
 	fscanf(pipe,"%d",&total);
 	fscanf(pipe,"%d",&used);
 	fscanf(pipe,"%d",&free);
-
-	sprintf(stotal,"%.0d%s%.0d%s%d%s",total>>20,(total>>20)?"G ":"",((total>>10)%1024),(total>>10)?"M ":"",total%1024,"K");
-	sprintf(sused,"%.0d%s%.0d%s%d%s",used>>20,(used>>20)?"G ":"",((used>>10)%1024),(used>>10)?"M ":"",used%1024,"K");
-	sprintf(sfree,"%.0d%s%.0d%s%d%s",free>>20,(free>>20)?"G ":"",((free>>10)%1024),(free>>10)?"M ":"",free%1024,"K");
-
-	sprintf(buf+strlen(buf),"%20s%17s%17s%17s\n\n","przestrzen wymiany:",stotal,sused,sfree);
-
+	*(upi++) = htonl(total);
+	*(upi++) = htonl(used);
+	*(upi++) = htonl(free);
+	
+	sendto(UDP_sock,&msg,sizeof(struct _UDP_msg),0,
+		   (struct sockaddr*)&UDP_addr,sizeof(struct sockaddr));
 	pclose(pipe);
-
-	pthread_mutex_lock(&send_mutex);
-	send_msg(client_des,buf);
-	pthread_mutex_unlock(&send_mutex);
 }
 
 	
 
-void send_users_stat(void){
-	char buf[MSG_LEN];
-	int max_l=0;
-	char rbuf[200];
-	char format[100];
-
-	FILE *pipe=popen("who | cut -d\" \" -f1 |sort|uniq","r");
-	if (!pipe) {
-		pthread_mutex_lock(&send_mutex);
-		send_msg(client_des,"Blad - nie da sie pobrac statystyk uzytkownikow\n\n");
-		pthread_mutex_unlock(&send_mutex);
-		return;
-	}
-
-	while(fscanf(pipe,"%s",rbuf)>0) 
-		if (strlen(rbuf)>max_l) max_l=strlen(rbuf);
-	pclose(pipe);
-
-	pipe=popen("who | cut -d\" \" -f1 |sort|uniq","r");
-	if (!pipe) {
-		pthread_mutex_lock(&send_mutex);
-		send_msg(client_des,"Blad - nie da sie pobrac statystyk uzytkownikow\n\n");
-		pthread_mutex_unlock(&send_mutex);
-		return;
-	}
-
-	max_l+=2;
-	int n=screen_width/max_l;
-	int i=0;
-
-	char timebuf[100];
-	time_t t=time(NULL);
-	strftime(timebuf,100,"%y-%m-%d %H:%M:%S",localtime(&t));
-
-	sprintf(buf,"Uzytkownicy zalogowani z %s:\n",timebuf);
-	while(fscanf(pipe,"%s",rbuf)>0){
-		i++; 
-		if (i>=n) i=0;
-		if ((strlen(buf)+max_l)>=(MSG_LEN-1)){
-			pthread_mutex_lock(&send_mutex);
-			send_msg(client_des,buf);
-			pthread_mutex_unlock(&send_mutex);
-			buf[0]=buf[1]=0;
-		}
-		sprintf(format,"%c%ds%s",'%',max_l,(i)?"":"\n");
-		sprintf(buf+strlen(buf),format,rbuf);
-	}
-	strcat(buf,"\n\n");
-
-
-	pclose(pipe);
-	if (buf[1]){
-		pthread_mutex_lock(&send_mutex);
-		send_msg(client_des,buf);
-		pthread_mutex_unlock(&send_mutex);
-	}
-}
-
-void send_proc_stat(void){
-	char buf[MSG_LEN];
-
-
-	FILE *pipe=popen("ps -eo user,pid,size,cmd ","r");
-	if (!pipe) {
-		pthread_mutex_lock(&send_mutex);
-		send_msg(client_des,"Blad - nie da sie pobrac statystyk procesow\n\n");
-		pthread_mutex_unlock(&send_mutex);
-		return;
-	}
-
-	char timebuf[100];
-	time_t t=time(NULL);
-	strftime(timebuf,100,"%y-%m-%d %H:%M:%S",localtime(&t));
-
-	sprintf(buf,"Informacje o procesach z %s\n(wlasciciel, PID, zajeta pamiec i linia komend):\n",timebuf);
-
-	fgets(buf+strlen(buf),MSG_LEN-strlen(buf),pipe);
-	pthread_mutex_lock(&send_mutex);
-	send_msg(client_des,buf);
-	pthread_mutex_unlock(&send_mutex);
-
-
-	while ((fgets(buf,MSG_LEN,pipe))){
-		pthread_mutex_lock(&send_mutex);
-		send_msg(client_des,buf);
-		pthread_mutex_unlock(&send_mutex);
-	}
-	pthread_mutex_lock(&send_mutex);
-	send_msg(client_des,"\n");
-	pthread_mutex_unlock(&send_mutex);
-
-
-	pclose(pipe);
-}
-
-void send_uptime_stat(){
-	FILE* fuptime=fopen("/proc/uptime","r");
-	if (!fuptime) {
-		pthread_mutex_lock(&send_mutex);
-		send_msg(client_des,"Blad - nie da sie pobrac uptime\n\n");
-		pthread_mutex_unlock(&send_mutex);
-		return;
-	}
-
-	double uptime;
-	double idletime;
-	char buf[MSG_LEN];
-	char timebuf[100];
-	time_t t=time(NULL);
-	strftime(timebuf,100,"%y-%m-%d %H:%M:%S",localtime(&t));
-
-
-	fscanf(fuptime,"%lf",&uptime);
-	fscanf(fuptime,"%lf",&idletime);	
-
-	int up=(int) uptime;
-	int upss=(int)100*( uptime-((double) up ) );
-	int idle=(int) idletime;
-	int idless=(int)100*( idletime-((double) idle ) );
-
-
-
-	sprintf(buf,"%s:\nSystem dziala przez: %.0d%s%.0d%s",timebuf,up/(3600*24), (up/(3600*24))?" dni, ":"" ,(up/(3600))%24,((up/(3600))%24)?" godzin, ":"");
-	sprintf(buf+strlen(buf),"%.0d%s%d sekund, %d setnych\nBezczynny przez: ",(up/60)%60,(up/60)?" minut, ":"",up%60,upss);
-
-
-	sprintf(buf+strlen(buf),"%.0d%s%.0d%s",idle/(3600*24), (idle/(3600*24))?" dni, ":"" ,(idle/(3600))%24,((idle/(3600))%24)?" godzin, ":"");
-	sprintf(buf+strlen(buf),"%.0d%s%d sekund, %d setnych\n\n",(idle/60)%60,(idle/60)?" minut, ":"",idle%60,idless);
-
-
-
-	pthread_mutex_lock(&send_mutex);
-	send_msg(client_des,buf);
-	pthread_mutex_unlock(&send_mutex);
-
-
-	pclose(fuptime);
-
-}
-
-unsigned short UDP_port;
-unsigned long UDP_IP;
 
 void recv_est(int des){
-	char buf[sizeof(uint16_t)+sizeof(uint32_t)];
-	recv(des,buf,sizeof(uint16_t)+sizeof(uint32_t),0);
-	UDP_port = ntohs(*((uint16_t*)buf));
-	UDP_IP = ntohl(*((uint16_t*)buf + sizeof(uint32_t)));
+	struct uint32_16 buf;
+	recv(des,&buf,sizeof(struct uint32_16),0);
+	UDP_port = buf.u16;
+	UDP_IP = buf.u32;
+	mprint(logfile,"połączenie z IP %s\n",inet_ntoa(*((struct in_addr*) &UDP_IP)));
 }
 
 void daemon_run(){
@@ -378,14 +276,11 @@ void daemon_run(){
 	recv_est(client_des);
 	dir_path=getenv("PWD");
 	mprint(logfile,"<M>: Rozpoczeta obsługa połączenia z IP: %s PID procesu obsługującego: %d\n",IP,getpid());
-	recv( client_des,&msg_r,sizeof(msg_header) ,0);
+//	recv( client_des,&msg_r,sizeof(msg_header) ,0);
 	int b=1;
-	while (b && (  recived=recv( client_des,&msg_r,sizeof(msg_header) ,0))){
+	while (b && (  recived=recv( client_des,&msg_r,sizeof(msg_header) ,0))>0){
 		unsigned char timestamp = msg_r.data;
 		switch ntohl(msg_r.type){
-			case USERS:
-				fun_add(&send_users_stat,timestamp);
-				break;
 
 			case MEMORY:
 				fun_add(&send_memory_stat,timestamp);
@@ -395,10 +290,10 @@ void daemon_run(){
 				fun_add(&send_proc_stat,timestamp);
 				break;
 
-			case UPTIME:
-				fun_add(&send_uptime_stat,timestamp);
+			case CPU_NAME:
+				fun_add(&send_cpu_stat,timestamp);
 				break;
-
+			
 			case LOAD:
 				fun_add(&send_load_stat,timestamp);
 				break;
@@ -406,10 +301,17 @@ void daemon_run(){
 			case CONFIGURATION_END:
 				b=0;
 				break;
+			
 				
 		}
 	}
+	
+	UDP_sock=socket(PF_INET,SOCK_DGRAM,0);
+	//bind(UDP_sock,(struct sockaddr*)&my_addr,sizeof (struct sockaddr_in));
 
+	UDP_addr.sin_family=AF_INET;
+	UDP_addr.sin_port=htons(8888);
+	UDP_addr.sin_addr.s_addr=(UDP_IP);
 	int live=1;
 	while (live){
 		int recived;
@@ -417,21 +319,44 @@ void daemon_run(){
 		fun_execute();
 		recived = recv( client_des,&msg_r,sizeof(msg_header) ,MSG_DONTWAIT);
 		if (recived!=EAGAIN){
-			if (msg_r.type==CONNECTION_END){
+			if (ntohl(msg_r.type)==CONNECTION_END){
 				live=0;
 			}
 		}
 	}
-
+	close(UDP_des);
 	mprint(logfile,"<M>: Zakończona obsługa połączenia z IP: %s PID procesu obsługującego: %d\n",IP,getpid());
 
 }
 
+int port;
 
+int atoport(char* str){
+	char* p;
+	printf("str: %s\n",str);
+	int res;
+	for (p=str;*p;p++){
+		if ((*p)<'0' || (*p)>'9'){
+			printf("potr powinien być liczbą %c\n",*p);
+			return 0;
+		}
+	}
+	res = atoi(str);
+	if (res<=1024 || res>65535){
+		printf("port powinien należeć do zakresu (1024, 65535]\n");
+		return 0;
+	}
+	return res;
+}
 
 int main(int argc,char* argv[]){
-	daemon(1,0);
+//	daemon(1,0);
 	childs_pids=init_set();
+	if (argc !=2 || !(port = atoport(argv[1]))){
+		printf("Usage: emiter [port]\n");
+		exit(2);
+	}
+	printf("port: %d\n",port);
 	parentpid=getpid();
 	pthread_t thread;
 	pthread_create(&thread,NULL,&wait_for_children,NULL);

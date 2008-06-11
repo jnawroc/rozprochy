@@ -1,11 +1,12 @@
 COMM = comm_const.o
-CSRC = src/common/comm_const.h src/common/comm_const.c
+CSRC = src/common/comm_const.c
 ESRC = src/emiter/emiter.c 
 OSRC = src/observer/observer.c
 EOBJ = pid_set.o comm_const.o funct.o
-OOBJ = comm_const.o
-PSSRC = src/emiter/pid_set.c src/emiter/pid_set.h
+OOBJ = comm_const.o stats_functs.o
+PSSRC = src/emiter/pid_set.c 
 FSRC = src/emiter/funct.c
+SFSRC = src/observer/stats_functs.c
 CC = gcc
 INCLUDES = -I src/common
 CFLAGS = -O2 -Wall
@@ -29,5 +30,8 @@ pid_set.o: $(PSSRC)
 funct.o: $(FSRC)
 	$(CC) -c $(CFLAGS) $(FSRC) $(INCLUDES)
 
+stats_functs.o: $(SFSRC)
+	$(CC) -c $(CFLAGS) $(SFSRC) $(INCLUDES)
+
 clean:
-	rm -f $(COMM) emiter observer *.o
+	rm -f $(COMM)  *.o
