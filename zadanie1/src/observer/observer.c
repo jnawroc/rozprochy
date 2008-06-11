@@ -199,7 +199,7 @@ int send_est (int des, uint32_t mip, uint16_t mipp)
 	}
 	struct uint32_16 uu;
 	uu.u16 = (uint16_t) (mip ? mipp : adr->sin_port);
-	uu.u32 = (uint32_t) (mip ? mip  : adr->sin_addr.s_addr);
+	uu.u32 = (uint32_t) (mip ? mip  : 0);//adr->sin_addr.s_addr);
 
 	//((uint16_t *) buf)[0] =  (mip ? mipp : (uint16_t)adr->sin_port);
 	//((uint32_t *) (buf + sizeof (uint16_t)))[0] =(uint32_t)
@@ -299,7 +299,6 @@ int main (int argc, char **argv)
 			return 0;
 		}
 		(*verbouse)("\twysylanie kanalem zarzadzania opcje połączenia\n");
-		
 		send_est (emiters_des[i], args->multicast_IP, args->multicast_port);
 		int k=0;
 		for(k=0;k<4;k++){

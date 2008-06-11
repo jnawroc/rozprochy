@@ -67,6 +67,7 @@ pthread_mutex_t pid_set_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 //int clients_des[MAX_CLIENTS];
 int sigusr;
+struct sockaddr_in _addr;
 int client_des;
 int my_des;
 pid_t parentpid;
@@ -262,6 +263,9 @@ void recv_est(int des){
 	recv(des,&buf,sizeof(struct uint32_16),0);
 	UDP_port = buf.u16;
 	UDP_IP = buf.u32;
+	if (!buf.u32){
+		UDP_IP =(_addr.sin_addr.s_addr);
+	}
 	mprint(logfile,"połączenie z IP %s\n",inet_ntoa(*((struct in_addr*) &UDP_IP)));
 }
 
@@ -348,6 +352,7 @@ int atoport(char* str){
 	}
 	return res;
 }
+	 
 
 int main(int argc,char* argv[]){
 //	daemon(1,0);
@@ -441,7 +446,7 @@ int main(int argc,char* argv[]){
 				signal(SIGINT,SIG_DFL);
 				signal(SIGTERM,SIG_DFL);
 
-				
+				_addr = addr;	 
 				pthread_mutex_lock(&pid_set_mutex);
 				free(childs_pids);
 				pthread_mutex_unlock(&pid_set_mutex);
