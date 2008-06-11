@@ -6,10 +6,18 @@
 #include <unistd.h>
 #include <netinet/in.h>
 
-#define port 8899
+//#define port 9999
 
-enum headers {LOAD=0,USERS, PROC, MEMORY, UPTIME, CONNECTION_START, 
-	CONFIGURATION_START, CONFIGURATION_END, CONNECTION_END};
+#define MAX 1024
+
+enum headers {LOAD=0, PROC, MEMORY,  CPU_NAME,
+	CONFIGURATION_START, CONFIGURATION_END,CONNECTION_START, CONNECTION_END};
+
+const static char* head_names[] = {"obciążenie systemu","procesy","pamięć","nazwa procesora",
+		"początek konfiguracji","koniec konfiguracji","początek połączenia",
+		"koniec połączenia"};
+
+#define UDP_MSG_LEN 64
 
 #define PADS 1
 
@@ -17,6 +25,7 @@ enum headers {LOAD=0,USERS, PROC, MEMORY, UPTIME, CONNECTION_START,
 
 #define MSG_LEN 1024
 
+#define MAX_EMITERS 32
 
 
 typedef struct msg_h{
@@ -24,13 +33,16 @@ typedef struct msg_h{
 	unsigned char data;
 } msg_header;
 
+typedef struct _UDP_msg{
+	uint32_t type;
+	char data[UDP_MSG_LEN] ;
+} UDP_msg; 
 
-
-
-
-
-
-int send_head(int,int,unsigned char);
+struct uint32_16{
+	uint16_t u16;
+	uint32_t u32;
+};
+int send_head(int,uint32_t,unsigned char);
 
 int send_msg(int ,char* );
 

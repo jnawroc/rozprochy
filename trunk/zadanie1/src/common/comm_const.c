@@ -6,7 +6,7 @@
 #include "comm_const.h"
 
 
-int send_head(int des,int type,unsigned char data){
+int send_head(int des,uint32_t type,unsigned char data){
 	msg_header msg;
 	msg.type=htonl(type);
 	msg.data=(data);
@@ -17,7 +17,7 @@ int send_head(int des,int type,unsigned char data){
 int send_msg(int des,char* name){
 	int ret;
 	char buf[MSG_LEN];
-	strcpy(buf,name);
+	strncpy(buf,name,MSG_LEN);
 	ret = send(des,buf,MSG_LEN,0);
 	return ret;
 }

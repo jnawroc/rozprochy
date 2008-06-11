@@ -1,6 +1,7 @@
 #define MAX_STATS 16
 #include "funct.h"
 #include <stdlib.h>
+#include <stdio.h>
 
 void (**functions)();
 int* intervals;
