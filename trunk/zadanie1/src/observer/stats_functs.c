@@ -43,7 +43,7 @@ void load(char*ip,char* dat){
 	load5 = data[1];
 	
 	load15 = data[2];
-	printf("średnie obciążenie systemu 1min: %f, 5min: %f, 15min: %f\n",load1,load5,load15);
+	printf("Srednie obciazenie systemu 1min: %f, 5min: %f, 15min: %f\n",load1,load5,load15);
 }
 
 void memory(char*ip,char* data){
@@ -54,9 +54,9 @@ void memory(char*ip,char* data){
 	strftime(timebuf,63,"%y-%m-%d %H:%M:%S",localtime(&t));
 	printf("\t%s ",timebuf);
 	
-	printf("pamięć całkowita:%d, używana: %d, wolna: %d\n",ntohl(p[0]),ntohl(p[1]),ntohl(p[2]));
+	printf("pamiec calkowita:%d, uzywana: %d, wolna: %d\n",ntohl(p[0]),ntohl(p[1]),ntohl(p[2]));
 	printf("\t%s ",timebuf);
-	printf("pamięć swap całkowita:%d, używana: %d, wolna: %d\n",ntohl(p[3]),ntohl(p[4]),ntohl(p[5]));
+	printf("pamiec swap calkowita:%d, uzywana: %d, wolna: %d\n",ntohl(p[3]),ntohl(p[4]),ntohl(p[5]));
 }	
 
 void cpu(char*ip,char* data){
@@ -74,7 +74,7 @@ void proc(char*ip,char* data){
 	strftime(timebuf,63,"%y-%m-%d %H:%M:%S",localtime(&t));
 	printf("\t%s ",timebuf);
 	uint32_t pr = ntohl(*(uint32_t*)data);
-	printf("uruchomionych procesów: %d\n",pr);
+	printf("uruchomionych procesow: %d\n",pr);
 }	
 
 

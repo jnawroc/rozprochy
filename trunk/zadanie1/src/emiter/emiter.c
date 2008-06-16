@@ -1,14 +1,3 @@
-/*
- * Emiter - to program monitorujący stan wybranych parametrów systemu np.:
- * liczba uruchomionych procesów, ilość wolnej pamięci, nazwa procesora 
- * (różne typy danych; minimum łańcuch znaków, liczba całkowita). Emiter 
- * posiada dwa kanały komunikacyjne: (1) kanał zarządzania pozwalający na 
- * uruchomienie pobierania stanu, (2) kanał dla danych, którym z zadaną 
- * częstością przesyłany jest stan węzła. Emiter otrzymuje kanałem 
- * zarządzania zgłoszenie zawierające adres transportowy (adres IP + 
- * nr portu; dopuszczalny multicast) oraz częstość emisji. Po otrzymaniu 
- * zgłoszenia transmituje dane kanałem danych na adres podany w zgłoszeniu.
- * */
 
 
 #include <string.h>
@@ -100,7 +89,7 @@ void sighand(int sig){
 	if (sig==SIGTERM) syg=" SIGTERM";
 	else syg="";
 
-	mprint(logfile,"<M>: demon odebrał sygnał%s, kończy pracę oraz zamyka wszelkie procesy potomne\n",syg);
+	mprint(logfile,"<M>: demon odebral sygnal, konczy prace oraz zamyka wszelkie procesy potomne\n",syg);
 
 	pthread_mutex_lock(&pid_set_mutex);
 	int i;
@@ -127,7 +116,7 @@ void* wait_for_children(void* nth){
 			if((pidw=waitpid(childs_pids->set[i],NULL,WNOHANG))>0){
 				
 				set_remove(childs_pids,pidw);
-				mprint(logfile,"<M>: Zakończony proces: %d\n",pidw);
+				mprint(logfile,"<M>: Zakonczony proces: %d\n",pidw);
 
 			}
 		}
@@ -215,7 +204,7 @@ void send_proc_stat(void){
 
 	if (sendto(UDP_sock,&msg,sizeof(struct _UDP_msg),0,
 			   (struct sockaddr*)&UDP_addr,sizeof(struct sockaddr_in))<=0){
-		perror("wysyłanie");
+		perror("wysylanie");
 	};
 }
 
@@ -265,7 +254,7 @@ void recv_est(int des){
 	if (!buf.u32){
 		UDP_IP =(_addr.sin_addr.s_addr);
 	}
-	mprint(logfile,"połączenie z IP %s, na porcie %d\n",inet_ntoa(*((struct in_addr*) &UDP_IP)),ntohs(UDP_port));
+	mprint(logfile,"polaczenie z IP %s, na porcie %d\n",inet_ntoa(*((struct in_addr*) &UDP_IP)),ntohs(UDP_port));
 }
 
 void daemon_run(){
@@ -278,7 +267,7 @@ void daemon_run(){
 	while(!boolean);
 	recv_est(client_des);
 	dir_path=getenv("PWD");
-	mprint(logfile,"<M>: Rozpoczeta obsługa połączenia z IP: %s PID procesu obsługującego: %d\n",IP,getpid());
+	mprint(logfile,"<M>: Rozpoczeta obsluga polaczenia z IP: %s PID procesu obslogujacego: %d\n",IP,getpid());
 //	recv( client_des,&msg_r,sizeof(msg_header) ,0);
 	int b=1;
 	sleep(2);
@@ -333,7 +322,7 @@ void daemon_run(){
 		}
 	}
 	close(UDP_des);
-	mprint(logfile,"<M>: Zakończona obsługa połączenia z IP: %s PID procesu obsługującego: %d\n",IP,getpid());
+	mprint(logfile,"<M>: Zakonczona obsluga polaczenia z IP: %s PID procesu obslugujacego: %d\n",IP,getpid());
 
 }
 
@@ -345,13 +334,13 @@ int atoport(char* str){
 	int res;
 	for (p=str;*p;p++){
 		if ((*p)<'0' || (*p)>'9'){
-			printf("potr powinien być liczbą %c\n",*p);
+			printf("port powinien byc liczba %c\n",*p);
 			return 0;
 		}
 	}
 	res = atoi(str);
 	if (res<=1024 || res>65535){
-		printf("port powinien należeć do zakresu (1024, 65535]\n");
+		printf("port powinien nalezec do zakresu (1024, 65535]\n");
 		return 0;
 	}
 	return res;
@@ -380,7 +369,7 @@ int main(int argc,char* argv[]){
 
 	if ( (my_des = socket(PF_INET, SOCK_STREAM, 0)) <0){
 		int er=errno;
-		mprint(logfile,"<E>: błąd przy tworzeniu socketu: %s Demon kończy pracę\n",strerror(er));
+		mprint(logfile,"<E>: blad przy tworzeniu socketu: %s Demon konczy prace\n",strerror(er));
 		exit(-1);     
 	}
 
@@ -397,13 +386,13 @@ int main(int argc,char* argv[]){
 	setsockopt(my_des,SOL_SOCKET,SO_REUSEADDR,&t,sizeof(t));
 	if( bind(my_des,(struct sockaddr*)&my_addr,sizeof (struct sockaddr_in)) != 0 ){
 		int er=errno;
-		mprint(logfile,"<E>: błąd przy bindowaniu socketu: %s Demon kończy pracę\n",strerror(er));
+		mprint(logfile,"<E>: blad przy bindowaniu socketu: %s Demon konczy prace\n",strerror(er));
 		exit(-2);     
 	}
 	
 	if(listen(my_des,MAX_CLIENTS) <0){
 		int er=errno;
-		mprint(logfile,"<E>: błąd przy nasłuchiwaniu: %s Demon kończy pracę\n",strerror(er));
+		mprint(logfile,"<E>: blad przy nasluchiwaniu: %s Demon konczy prace\n",strerror(er));
 		exit(-3);     
 	}
 
@@ -413,18 +402,18 @@ int main(int argc,char* argv[]){
 	while(boolean){
 		if ((client_des=accept(my_des,(struct sockaddr*)&addr,&addrlen))<0){
 			int er=errno;
-			mprint(logfile,"<E>: błąd przy akceptacji: %s\n",strerror(er));
+			mprint(logfile,"<E>: blad przy akceptacji: %s\n",strerror(er));
 	
 		}else{
 			boolean=0;
 
 			IP=inet_ntoa(addr.sin_addr);
-			mprint(logfile,"<M>: przychodzące połączenie z adresu IP %s\n",IP);
+			mprint(logfile,"<M>: przychodzace polaczenie z adresu IP %s\n",IP);
 				
 			child=fork();
 			if (child<0){
 				int er=errno;
-				mprint(logfile,"<E>: błąd przy tworzeniu procesu potomnego: %s\n",strerror(er));
+				mprint(logfile,"<E>: blad przy tworzeniu procesu potomnego: %s\n",strerror(er));
 				boolean=1;
 			}
 
@@ -435,7 +424,7 @@ int main(int argc,char* argv[]){
 				pthread_mutex_lock(&pid_set_mutex);
 
 				if (! set_add(childs_pids,child)){
-					mprint(logfile,"<E>: przekroczono maxymalną ilośc połączeń\n");
+					mprint(logfile,"<E>: przekroczono maxymalna ilosc polaczen\n");
 					kill(child,SIGINT);
 					waitpid(child,0,0);
 				}
