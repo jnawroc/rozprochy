@@ -63,8 +63,8 @@ void sighand (int sig)
 	  * Program documentation. 
 	  */
 static char doc[] =
-	"Observer - program obserwujący emiterow, bądź filtry\n\
-  adres_IP - IP emiterow/filtrow, nalezy podać conajmniej jeden.";
+	"Observer - program obserwujacy emiterow, badz filtry\n\
+  adres_IP - IP emiterow/filtrow, nalezy podac conajmniej jeden.";
 
 	 /*
 	  * A description of the arguments we accept. 
@@ -81,10 +81,10 @@ static struct argp_option options[] = {
 	{"proc", 'p', "timestamp", 0, "liczba procesow"},
 	{"memory", 'M', "timestamp", 0, "statystyki pamieci"},
 	{"cpu", 'c', "timestamp", 0, "nazwa procesorow"},
-	{"load", 'l', "timestamp", 0, "obciązenie systemu"},
+	{"load", 'l', "timestamp", 0, "obcizzenie systemu"},
 	{"all", 'a', "timestamp", 0, "wszystkie stat"},
-	{"verbouse",'v',0,0,"bądź rozmowny"},
-	{"debug",'d',0,0,"włącza komunikaty debbugowania"},
+	{"verbouse",'v',0,0,"badz rozmowny"},
+	{"debug",'d',0,0,"wlacza komunikaty debbugowania"},
 	{0}
 };
 
@@ -212,7 +212,7 @@ int send_est (int des, uint32_t mip, uint16_t mipp)
 
 void take_stats ()
 {
-	debug("zaczyna zbierać %s\n",adr_to_string(my_UDP_addr));
+	debug("zaczyna zbierac %s\n",adr_to_string(my_UDP_addr));
 	UDP_des = socket (PF_INET, SOCK_DGRAM, 0);
 	if (bind (UDP_des, (struct sockaddr *) &my_UDP_addr,
 		sizeof (struct sockaddr_in))){
@@ -236,7 +236,6 @@ void take_stats ()
 	volatile int i;
 
 	while (1) {
-		debug("żyję\n");
 				
 		for (i = 0; i < args->IPcount; i++) {
 		
@@ -309,7 +308,7 @@ int main (int argc, char **argv)
 		(emiters_addr[i]).sin_family = AF_INET;
 		(emiters_addr[i]).sin_port = htons (args->ports[i]);
 		(emiters_addr[i]).sin_addr.s_addr =  (args->IPs[i]);
-		(*verbouse)("łączenie z klientem o IP: %s na porcie %d\n",
+		(*verbouse)("laczenie z klientem o IP: %s na porcie %d\n",
 					inet_ntoa((emiters_addr[i]).sin_addr),args->ports[i]);
 		(*verbouse)("\ttworzenie socketu\n");
 
@@ -324,7 +323,7 @@ int main (int argc, char **argv)
 			perror ("connect");
 			return 0;
 		}
-		(*verbouse)("\twysylanie kanalem zarzadzania opcje połączenia\n");
+		(*verbouse)("\twysylanie kanalem zarzadzania opcje polaczenia\n");
 		send_est (emiters_des[i], args->multicast_IP, args->multicast_port);
 		int k=0;
 		for(k=0;k<4;k++){
