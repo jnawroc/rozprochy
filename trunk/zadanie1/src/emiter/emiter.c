@@ -143,7 +143,8 @@ void send_load_stat(void){
 		return;
 	}
 	UDP_msg msg;
-	char* buf = msg.data;
+	char buf[129];
+	float buf_[3];
 	fread(buf,1,128,load);
 	char* p1=buf;
 	char* p2;
@@ -159,23 +160,20 @@ void send_load_stat(void){
 	*p2 = 0;
 	float min15_load = strtod(p1,NULL);
 
-	
 	msg.type=LOAD;
-	float *ptr;
-	ptr = &min1_load;
-	*((uint32_t*)buf)=htonl(*((int*)ptr));
-	ptr = &min5_load;
-	*((uint32_t*)(buf+sizeof(float)))=htonl(*((int*)ptr));
-	ptr = &min15_load;
-	*((uint32_t*)buf+sizeof(float))=htonl(*((int*)ptr));
+
+	buf_[0] = min1_load;
+	buf_[1] = min5_load;
+	buf_[2] = min15_load;
+	memcpy(msg.data,buf_,sizeof(float)*3);
 	sendto(UDP_sock,&msg,sizeof(struct _UDP_msg),0,
 		   (struct sockaddr*)&UDP_addr,sizeof(struct sockaddr));
 	fclose(load);
 }
 
 void send_cpu_stat(void){
-		mprint(logfile,"<M>: Wysylam cpu_stat\n");
-	FILE* cpuinfo=fopen("/proc/cpuinfo ","r");
+		mprint(logfile,"<M>: Wysylam cpu_stat... ");
+	FILE* cpuinfo=fopen("/proc/cpuinfo","r");
 	if (!cpuinfo) {
 		return;
 	}
@@ -184,14 +182,15 @@ void send_cpu_stat(void){
 	msg.type=CPU_NAME;
 	while (fgets(buf,UDP_MSG_LEN-1,cpuinfo)){
 		char *p=strstr(buf,"\n");
-		if (*p) *p=0;
+		if (p) *p=0;
 		if (strstr(buf,"processor")){
 			char *p1 = strstr(buf,": ")+2;
 			msg.data[0]=(unsigned char) (atoi(p1));
 		}
-		if (strstr(buf,"model_name")){
+		if (strstr(buf,"model name")){
 			char *p1 = strstr(buf,": ")+2;
 			strcpy((msg.data+1),p1);
+				mprint(logfile,"poszlo\n");
 			sendto(UDP_sock,&msg,sizeof(struct _UDP_msg),0,
 				   (struct sockaddr*)&UDP_addr,sizeof(struct sockaddr));
 		}
@@ -266,7 +265,7 @@ void recv_est(int des){
 	if (!buf.u32){
 		UDP_IP =(_addr.sin_addr.s_addr);
 	}
-	mprint(logfile,"połączenie z IP %s\n",inet_ntoa(*((struct in_addr*) &UDP_IP)));
+	mprint(logfile,"połączenie z IP %s, na porcie %d\n",inet_ntoa(*((struct in_addr*) &UDP_IP)),ntohs(UDP_port));
 }
 
 void daemon_run(){
@@ -282,8 +281,10 @@ void daemon_run(){
 	mprint(logfile,"<M>: Rozpoczeta obsługa połączenia z IP: %s PID procesu obsługującego: %d\n",IP,getpid());
 //	recv( client_des,&msg_r,sizeof(msg_header) ,0);
 	int b=1;
-	while (b && (  recived=recv( client_des,&msg_r,sizeof(msg_header) ,0))>0){
+	sleep(2);
+	while (b && ((  recived=recv( client_des,&msg_r,sizeof(struct msg_h) ,0))>0)){
 		unsigned char timestamp = msg_r.data;
+		printf("timestamp: %d, type: %d\n",(int)msg_r.data,ntohl(msg_r.type));
 		switch ntohl(msg_r.type){
 
 			case MEMORY:
@@ -311,12 +312,15 @@ void daemon_run(){
 	}
 	
 	UDP_sock=socket(PF_INET,SOCK_DGRAM,0);
+	u_int yes=1;
+
 	//bind(UDP_sock,(struct sockaddr*)&my_addr,sizeof (struct sockaddr_in));
 
 	UDP_addr.sin_family=AF_INET;
-	UDP_addr.sin_port=htons(8888);
+	UDP_addr.sin_port=(UDP_port);
 	UDP_addr.sin_addr.s_addr=(UDP_IP);
 	int live=1;
+	//printf("zaczyna wysyłanie %s\n",adr_to_string(UDP_addr));
 	while (live){
 		int recived;
 		sleep(interval_gcd);
@@ -337,7 +341,7 @@ int port;
 
 int atoport(char* str){
 	char* p;
-	printf("str: %s\n",str);
+	//printf("str: %s\n",str);
 	int res;
 	for (p=str;*p;p++){
 		if ((*p)<'0' || (*p)>'9'){
@@ -361,7 +365,7 @@ int main(int argc,char* argv[]){
 		printf("Usage: emiter [port]\n");
 		exit(2);
 	}
-	printf("port: %d\n",port);
+	//printf("port: %d\n",port);
 	parentpid=getpid();
 	pthread_t thread;
 	pthread_create(&thread,NULL,&wait_for_children,NULL);
