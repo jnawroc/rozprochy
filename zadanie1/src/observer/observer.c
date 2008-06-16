@@ -27,6 +27,7 @@ struct sockaddr_in emiters_addr[MAX_EMITERS];
 struct sockaddr_in emiters_UDP_addr[MAX_EMITERS];
 int emiters_des[MAX_EMITERS];
 int UDP_des;
+struct ip_mreq mreq;
 
 int (*debug)(const char *format,...);
 int (*verbouse)(const char *format,...);
@@ -114,9 +115,9 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 			p++;
 			h = gethostbyname (arg);
 
-			arguments->multicast_IP =*((uint32_t*)h->h_addr_list[0]);
+			arguments->multicast_IP =(*((uint32_t*)h->h_addr_list[0]));
 				//ntohl (*((unsigned long int *) (h->h_addr_list[0])));
-			arguments->multicast_port = atoi (p);
+			arguments->multicast_port = htons( atoi (p));
 			break;
 		case 'p':
 			arguments->timestamps[PROC] = (unsigned char) atoi (arg);
@@ -194,8 +195,8 @@ int send_est (int des, uint32_t mip, uint16_t mipp)
 	adr->sin_port = htons(8888);
 	if (mip) {
 		(*debug)("\t\tjest multicast\n");
-		adr->sin_port = htons (mipp);
-		adr->sin_addr.s_addr = htonl (mip);
+		adr->sin_port = (mipp);
+		adr->sin_addr.s_addr = htonl(INADDR_ANY);
 	}
 	struct uint32_16 uu;
 	uu.u16 = (uint16_t) (mip ? mipp : adr->sin_port);
@@ -211,14 +212,26 @@ int send_est (int des, uint32_t mip, uint16_t mipp)
 
 void take_stats ()
 {
-	debug("zaczyna zbierać\n");
+	debug("zaczyna zbierać %s\n",adr_to_string(my_UDP_addr));
 	UDP_des = socket (PF_INET, SOCK_DGRAM, 0);
 	if (bind (UDP_des, (struct sockaddr *) &my_UDP_addr,
 		sizeof (struct sockaddr_in))){
 		perror("bindowanie UDP");
 		exit(1);
 	}
-
+	u_int yes=1;
+    if (setsockopt(UDP_des,SOL_SOCKET,SO_REUSEADDR,&yes,sizeof(yes)) < 0) {
+       perror("Reusing ADDR failed");
+       exit(1);
+    }
+	if (args->multicast_IP){
+	mreq.imr_multiaddr.s_addr=(args->multicast_IP);
+    mreq.imr_interface.s_addr=htonl(INADDR_ANY);
+    if (setsockopt(UDP_des,IPPROTO_IP,IP_ADD_MEMBERSHIP,&mreq,sizeof(mreq)) < 0) {
+		perror("setsockopt");
+		exit(1);
+    }
+	}
 	UDP_msg msg;
 	volatile int i;
 
@@ -228,14 +241,27 @@ void take_stats ()
 		for (i = 0; i < args->IPcount; i++) {
 		
 			socklen_t len = sizeof (struct sockaddr_in);
-			debug("próba odczytu\n");
-			int res = recvfrom (UDP_des, &msg, sizeof (struct _UDP_msg),
-					MSG_DONTWAIT, (struct sockaddr *) &emiters_UDP_addr[i],
-					&len);
-
+			debug("próba odczytu z %s\n",adr_to_string(emiters_addr[i]));
+			int res ;
+			if (args->multicast_IP){
+				if ((res=recvfrom (UDP_des, &msg, sizeof (struct _UDP_msg),
+						MSG_DONTWAIT, (struct sockaddr *) &my_UDP_addr,
+						&len))<0){
+					
+					sleep(1);
+			//	perror("recvfrom");
+				}
+			}else{
+				if ((res=recvfrom (UDP_des, &msg, sizeof (struct _UDP_msg),
+						MSG_DONTWAIT, (struct sockaddr *) &emiters_addr[i],
+						&len))<0){
+					sleep(1);
+			//	perror("recvfrom");
+				}	
+			}
 			if ( res>0) {
 
-				char* ip=strdup(inet_ntoa(emiters_UDP_addr[i].sin_addr));
+				char* ip=strdup(inet_ntoa(emiters_addr[i].sin_addr));
 				debug("zakonczona pomyslnie\n");
 				if (msg.type & 1024) {
 					(*combined_func[msg.type ^ 1024]) (ip,msg.data);
@@ -243,7 +269,7 @@ void take_stats ()
 					(*stat_func[msg.type]) (ip,msg.data);
 				}
 			}
-			sleep(1);
+			
 		}
 	}
 }
