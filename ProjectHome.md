@@ -1,0 +1,1 @@
+Zadanie na laboratoria z systemów rozproszonych
